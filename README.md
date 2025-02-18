@@ -13,6 +13,13 @@ System matrix
         [ 0.        ]]
 ```
 
+states
+```
+\psi_1 // Truck orientation
+\psi_2 // Trailer orientation
+y_2 // lateral position of trailer axle
+```
+
 ## Setup 
 
 - Python 3.11
@@ -39,4 +46,19 @@ Many choices here, but it is noteworthy that the Eigen library requires you to i
 
 ```
 -I <PATH>/eigen-3.4.0
+```
+
+## Usage
+
+Get the feedback control gains printed out
+```
+python design.py
+```
+
+Compile and run C++ and two files will be generated to csv. 
+
+
+Takes the two csv files and plots the results
+```
+python display.py
 ```
