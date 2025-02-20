@@ -23,7 +23,7 @@ y_2 // lateral position of trailer axle
 ## Setup 
 
 - Python 3.11
-- C++ (I'm using vscode with msvs 2022)
+- C++ (I'm using vscode with msys2/mingw64 g++)
 - [Eigen library](https://eigen.tuxfamily.org/index.php?title=Main_Page)
 
 ### Python

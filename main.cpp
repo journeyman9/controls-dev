@@ -8,6 +8,7 @@
 #include <random>
 #include <math.h>
 #include <algorithm>
+#include <Eigen/Dense>
  
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -16,29 +17,32 @@ using namespace std;
 using json = nlohmann::json;
 
 vector<float> plant(const vector<float>& x, const vector<float>& u) {
-    vector<vector<float>> A = {
-        {0, 0, 0},
-        {-0.19740973, 0.19740973, 0},
-        {0, -2.0120, 0}
-    };
-    vector<vector<float>> B = {
-        {-0.35052265},
-        {-0.00997366},
-        {0}
-    };
+    /*
+    Nonlinear kinematic equations
+    \dot{\psi_1} = (v1 / L1) * tan \delta
+    \dot{\psi_2} = (v1 / L2) * sin \theta - (v1*h / ((L1 * L2)) * tan \delta * cos \theta
+    \dot{y_2} = (v1*cos \theta + ((v1*h*tan \delta) / (L1) * sin \theta) * sin \psi_2
 
-    vector<float> xd(3, 0.0); // Initialize as [0, 0, 0]
+    \theta = \psi_1 - \psi_2
+    v2 = v1 * cos \theta + (v1*h*tan \delta / L1 ) * sin \theta
+    */
 
-    for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            xd[i] += A[i][j] * x[j];
-        }
-    }
+    // Implement the above equations
+    float v1 = -2.012; // m/s
+    float h = -0.29; // m
+    float L1 = 5.74; // m
+    float L2 = 10.192; // m
+    
+    vector<float> xd;
+    xd.push_back((v1 / L1) * tan(u[0]));
 
-    for (int i = 0; i < 3; ++i) {
-        xd[i] += B[i][0] * u[0];
-    }
+    float theta = x[0] - x[1];
 
+    xd.push_back((v1 / L2) * sin(theta) - (v1 * h / (L1 * L2) * tan(u[0]) * cos(theta)));
+    
+    float v2 = v1 * cos(theta) + (v1 * h * tan(u[0]) / L1) * sin(theta);
+
+    xd.push_back(v2 * sin(x[1]));
     return xd;
 }
 
