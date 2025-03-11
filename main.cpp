@@ -111,6 +111,37 @@ vector<vector<float>> reference_trajectory_generation(float dt, float T, float S
     return x_r_t;
 }
 
+vector<vector<float>> get_reference_trajectory() {
+        // Read .csv file 
+    std::ifstream f{"trajectory_data.csv"};
+    vector<vector<float>> x_r_t;
+    string line;
+
+    // Skip the header line
+    std::getline(f, line);
+
+    while (std::getline(f, line)) {
+        vector<float> x_r;
+        std::istringstream iss(line);
+        string token;
+        while (std::getline(iss, token, ',')) {
+            try {
+                x_r.push_back(std::stof(token));
+            } catch (const std::invalid_argument& e) {
+                cerr << "Invalid argument: " << token << " cannot be converted to float" << endl;
+                // Handle the error as needed, e.g., skip the token or exit
+                return {};
+            } catch (const std::out_of_range& e) {
+                cerr << "Out of range: " << token << " is out of range for float" << endl;
+                // Handle the error as needed, e.g., skip the token or exit
+                return {};
+            }
+        }
+        x_r_t.push_back(x_r);
+    }
+    return x_r_t;
+}
+
 vector<float> controller(vector<float> x, vector<float> x_r) {
     vector<float> K = {-27.60653245, 99.8307537, -7.85407596}; 
     vector<float> u_fb(1, 0.0);
@@ -151,10 +182,7 @@ vector<float> controller(vector<float> x, vector<float> x_r) {
     B << -0.35052265, -0.00997366, 0;
 
     MatrixXd W = MatrixXd::Identity(3, 3);
-    //W(0, 0) = 1.0 / pow(1.0472, 2);
-    W(0, 0) = 0.0;
-    W(1, 1) = 1.0 / pow(0.0872, 2);
-    W(2, 2) = 1.0 / pow(0.15, 2);
+    W(0, 0) = 0;
 
     VectorXd x_rr = VectorXd(3);
     x_rr << x_r[0], x_r[1], x_r[2];
@@ -162,10 +190,11 @@ vector<float> controller(vector<float> x, vector<float> x_r) {
     VectorXd xd_rr = VectorXd(3);
     xd_rr << x_r[3], x_r[4], x_r[5];
 
-    VectorXd result = (B.transpose() * W.transpose() * W * B).inverse() * B.transpose() * W.transpose() * W * (-A * x_rr + xd_rr);
+    VectorXd result = (B.transpose() * W.transpose() * W * B).inverse() * B.transpose() * W.transpose() * W * (A * x_rr - xd_rr);
 
     u[0] = u_fb[0] + result(0);
 
+    //u[0] = u_fb[0];
 
     return u;
 }
@@ -183,9 +212,13 @@ int main() {
     float S1 = 0.2; // psi_1 [radians]
     float S2 = 0.2; // psi_2 [radians]
     float S3 = 5.0; // y2 [m]
+    /*
     vector<float> x = {1*S1, 1*S2, -1 * S3}; // Initial state
     
     vector<vector<float>> trajectory = reference_trajectory_generation(dt, T, S1, S2, S3);
+    */
+    vector<vector<float>> trajectory = get_reference_trajectory();
+    vector<float> x = {trajectory[0][0], trajectory[0][1], trajectory[0][2]}; // Initial state
 
     vector<float> u, xd;
     vector<vector<float>> result;
