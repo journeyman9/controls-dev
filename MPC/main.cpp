@@ -101,7 +101,7 @@ public:
         - new_x: whether x is new
         - obj_value: value of the objective function 
         */
-        // Cost function: cost = ubar^T(Bbar^TQbarBbar + Rbar)ubar + 2 ubar^TBbar^TQbarAbarxo + xo^T Abar^T Qbar Abar xo
+        // Cost function: cost = ubar^T(Bbar^TQbarBbar + Rbar)ubar + 2 ubar^T Bbar^TQbarAbarxo + xo^T Abar^T Qbar Abar xo
         
         // I think just bad naming of vars
         VectorXd ubar_ = VectorXd(N_);
@@ -389,7 +389,7 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
     VectorXd x_ = VectorXd(3);
     x_ << x[0], x[1], x[2];
 
-    VectorXd xo = x_rr - x_;
+    VectorXd xo = x_ - x_rr;
 
     // Cost matrices
     MatrixXd Q = MatrixXd::Identity(3, 3);
@@ -409,8 +409,11 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
     // Construct Abar and Bbar
     MatrixXd Abar = MatrixXd::Zero(3*N, 3);
     MatrixXd Bbar = MatrixXd::Zero(3*N, N);
+    MatrixXd A_power = MatrixXd::Identity(3, 3);
+    A_power = A;
     for(int i = 0; i < N; i++) {
-        Abar.block<3, 3>(i*3, 0) = A;
+        Abar.block<3, 3>(i*3, 0) = A_power;
+        A_power *= A;
     }
 
     /*
@@ -421,24 +424,30 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
         A^(N-1)*B, A^(N-2)*B, A^(N-3)*B, ..., B
     ]
     */
-    MatrixXd A_power = MatrixXd::Identity(3, 3);
+    A_power = A;
     for(int i = 0; i < N; i++) {
         for(int j = 0; j <= i; j++) {
             Bbar.block<3, 1>(i*3, j) = A_power * B;
         }
         A_power = A_power * A; // Update A_power to A^(j+1)
     }
-    /* 
+    /*
     std::cout << "Abar dimensions: " << Abar.rows() << "x" << Abar.cols() << std::endl;
     std::cout << "Bbar dimensions: " << Bbar.rows() << "x" << Bbar.cols() << std::endl;
     std::cout << "Qbar dimensions: " << Qbar.rows() << "x" << Qbar.cols() << std::endl;
     std::cout << "Rbar dimensions: " << Rbar.rows() << "x" << Rbar.cols() << std::endl;
     */
 
-    //std::cout << "Bbar:\n" << Bbar << std::endl;
+    /*
+    std::cout << "Abar:\n" << Abar << std::endl;
+    std::cout << "Bbar:\n" << Bbar << std::endl;
     
-    //MatrixXd H = 2.0 * (Bbar.transpose() * Qbar * Bbar + Rbar);
-    //std::cout << "Hesssian:\n" << H << std::endl;
+    MatrixXd H = 2.0 * (Bbar.transpose() * Qbar * Bbar + Rbar);
+    std::cout << "Hesssian:\n" << H << std::endl;
+    */
+
+    // Break code exit
+    //assert(false);
 
     SmartPtr<TNLP> mynlp = new QuadraticNLP(Abar, Bbar, xo, Qbar, Rbar, N);
 
