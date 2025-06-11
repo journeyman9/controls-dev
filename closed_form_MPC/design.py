@@ -16,16 +16,22 @@ A = np.array(
 )
 
 B = np.array([v1x/L1, -h*v1x/(L1*L2), 0]).reshape(-1, 1)
+C = np.eye(3)
+D = np.zeros((3, 1))
 
-print(A)
-print(B)
+dt = 0.08
+sys = ct.ss(A, B, C, D)
+dsys = ct.c2d(sys, dt, method='zoh')
+
+# Print as floats
+print("A matrix:")
+print(np.array2string(dsys.A, precision=8, suppress_small=True))
+print("B matrix:")
+print(np.array2string(dsys.B, precision=8, suppress_small=True))
 
 print("Controllable? ", np.linalg.matrix_rank(ct.ctrb(A, B)) == 3)
 
 # Plot pole zero
-C = np.eye(3)
-D = np.zeros((3, 1))
-sys = ct.ss(A, B, C, D)
 
 # Print poles and zeros before pole placement  
 """
@@ -67,5 +73,5 @@ Q = np.array(
 
 R = 1.6211
 
-K, S, E = ct.lqr(A, B, Q, R)
+K, S, E = ct.dlqr(dsys, Q, R)
 print("K: ", K)

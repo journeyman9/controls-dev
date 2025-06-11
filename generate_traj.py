@@ -25,6 +25,7 @@ y2 = env.y2[env.sim_i-1]
 psi_1d = 0
 psi_2d = 0
 y2d = 0
+actions = 0
 
 # Collect data at each step
 data.append({
@@ -33,7 +34,8 @@ data.append({
     "y2": y2,
     "psi_1d": psi_1d,
     "psi_2d": psi_2d,
-    "y2d": y2d
+    "y2d": y2d,
+    "action": actions,
 })
 
 while not done:
@@ -53,7 +55,7 @@ while not done:
     psi_1d = env.xd[0]
     psi_2d = env.xd[1]
     y2d = env.xd[5]
-    
+
     # Collect data at each step
     data.append({
         "psi_1": psi_1,
@@ -61,7 +63,8 @@ while not done:
         "y2": y2,
         "psi_1d": psi_1d,
         "psi_2d": psi_2d,
-        "y2d": y2d
+        "y2d": y2d,
+        "action": a[0],
     })
 
 

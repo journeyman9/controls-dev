@@ -86,13 +86,16 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
     VectorXd ubar = VectorXd::Zero(N); // Control input vector
 
     // Minimize cost = ubar^T(Bbar^TQbarBbar + Rbar)ubar + 2 ubar^TBbar^TQbarAbarxo + xo^T Abar^T Qbar Abar xo
-    MatrixXd A = MatrixXd::Constant(3, 3, 0.0);
-    A(1, 0) = -0.19740973;
-    A(1, 1) = 0.19740973;
-    A(2, 1) = -2.0120;
+    MatrixXd A = MatrixXd::Identity(3, 3);
+    A(1, 0) = 1.0;
+    A(1, 1) = 1.01591814;
+    A(2, 1) = 1.0;
+    A(1, 0) = -0.01591814;
+    A(2, 0) = 0.00127772;
+    A(2, 1) = -0.16223772;
 
     VectorXd B(3);
-    B << -0.35052265, -0.00997366, 0;
+    B << -0.02804181, -0.00058163, 0.00005263;
 
     VectorXd x_rr = VectorXd(3);
     x_rr << x_r[0], x_r[1], x_r[2];
