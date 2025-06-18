@@ -89,7 +89,7 @@ vector<float> controller(vector<float> x, vector<float> x_r) {
     return u;
 }
 
-void kalman_filter(VectorXd& x_hat, const VectorXd& u_hat, MatrixXd& P, const VectorXd& z, const MatrixXd& Q, const MatrixXd& R, const MatrixXd& H, const MatrixXd& F, const VectorXd& G, const VectorXd& wn, const vector<float> x_r) {
+MatrixXd kalman_filter(VectorXd& x_hat, const VectorXd& u_hat, MatrixXd& P, const VectorXd& z, const MatrixXd& Q, const MatrixXd& R, const MatrixXd& H, const MatrixXd& F, const VectorXd& G, const VectorXd& wn, const vector<float> x_r) {
     VectorXd x_rr = VectorXd(3);
     x_rr << x_r[0], x_r[1], x_r[2];
 
@@ -100,14 +100,22 @@ void kalman_filter(VectorXd& x_hat, const VectorXd& u_hat, MatrixXd& P, const Ve
     // Update step
     VectorXd y = z - H * x_hat; // Measurement residual
     MatrixXd S = H * P * H.transpose() + R; // Residual covariance
-    MatrixXd Kn = P * H.transpose() * S.inverse(); // Kalman gain
+    MatrixXd Kf = P * H.transpose() * S.inverse(); // Kalman gain
 
-    x_hat = x_hat + Kn * y; // Updated state estimate
-    P = (MatrixXd::Identity(3, 3) - (Kn * H)) * P * (MatrixXd::Identity(3, 3) - (Kn * H)).transpose() + Kn * R * Kn.transpose();
+    x_hat = x_hat + Kf * y; // Updated state estimate
+    P = (MatrixXd::Identity(3, 3) - (Kf * H)) * P * (MatrixXd::Identity(3, 3) - (Kf * H)).transpose() + Kf * R * Kf.transpose();
     
     // Prediction step
     x_hat = F*x_hat + G*u_hat;
     P = F*P*F.transpose() + Q;
+    return Kf;
+}
+
+Eigen::MatrixXd get_covariance_matrix(const Eigen::MatrixXd& mat) {
+    Eigen::RowVectorXd mean = mat.colwise().mean();
+    Eigen::MatrixXd centered = mat.rowwise() - mean;
+    Eigen::MatrixXd covariance = (centered.adjoint() * centered) / double(mat.rows() - 1);
+    return covariance;
 }
 
 
@@ -126,6 +134,7 @@ int main() {
     vector<float> u{0};
     vector<float> xd;
     vector<vector<float>> result;
+    vector<vector<float>> kalman_result;
     result.push_back({x[0], x[1], x[2], 0});
 
     std::random_device rd;
@@ -154,15 +163,41 @@ int main() {
     z[2] += std::clamp(dist(gen), -0.3f, 0.3f);
     
     VectorXd x_hat(3); // Initial state estimate
-
+    x_hat << z[0], z[1], z[2]; // Initial state estimate from measurement
+    
     MatrixXd Q(3, 3); // Process noise covariance
-    // TODO: how calculate Q?
+    MatrixXd R(3, 3); // Measurement noise covariance
+    
+    /*
+    // Calculate covariance matrices 
+    vector<vector<float>> calibration = get_reference_trajectory("measurement_data.csv");
+    Eigen::MatrixXd data(calibration.size(), 3);  
+    Eigen::MatrixXd og_data(calibration.size(), 3);  
+    for (size_t i = 0; i < calibration.size(); i++) {
+        auto& x_m = calibration[i];
+        
+        // Populate original data
+        og_data(i, 0) = x_m[0];
+        og_data(i, 1) = x_m[1]; 
+        og_data(i, 2) = x_m[2];
+        
+        // Add noise and populate noisy data
+        data(i, 0) = x_m[0];
+        data(i, 1) = x_m[1] + std::clamp(dist(gen), -0.17f, 0.17f);
+        data(i, 2) = x_m[2] + std::clamp(dist(gen), -0.3f, 0.3f);
+    }
+    
+    // Calculate Process noise covariance Q
+    Q = get_covariance_matrix(og_data);
+
+    // Calculate Measurement noise covariance R
+    R = get_covariance_matrix(data);
+    */
+
     Q << 0.01, 0.0, 0.0,
          0.0, 0.01, 0.0,
          0.0, 0.0, 0.01; // Process noise covariance matrix
     
-    MatrixXd R(3, 3); // Measurement noise covariance
-    // TODO: how calculate R?
     R << pow(0.04, 2), 0.0, 0.0,
          0.0, pow(0.04, 2), 0.0,
          0.0, 0.0, pow(0.04, 2); // Measurement noise covariance matrix
@@ -180,10 +215,8 @@ int main() {
     VectorXd u_hat(1);
     u_hat << 0.0;
     
-    /*
     // TODO: Does calibration make sense, measurement_data needs u to pass in u_hat
-    x_hat << z[0], z[1], z[2]; // Initial state estimate from measurement
-    vector<vector<float>> calibration = get_reference_trajectory("measurement_data.csv");
+    /*
     for (auto& x_m: calibration) {
         // Add noise to the state
         z << x_m[0], x_m[1], x_m[2]; // Measurement vector
@@ -192,7 +225,7 @@ int main() {
 
         u_hat << x_m[6]; // Convert u to VectorXd for kalman_filter
         // Kalman filter step
-        kalman_filter(x_hat, u_hat, P, z, Q, R, H, F, G, wn, x_m);
+        Kf = kalman_filter(x_hat, u_hat, P, z, Q, R, H, F, G, wn, x_m);
         //x_hat passed by reference
         
         x_hat = F*x_hat + G*x_m[6];
@@ -213,7 +246,7 @@ int main() {
 
         // Kalman filter step
         u_hat << u[0]; // Convert u to VectorXd for kalman_filter
-        kalman_filter(x_hat, u_hat, P, z, Q, R, H, F, G, wn, x_r);
+        MatrixXd Kf = kalman_filter(x_hat, u_hat, P, z, Q, R, H, F, G, wn, x_r);
         //x_hat passed by reference
         std::vector<float> x_hat_std(x_hat.data(), x_hat.data() + x_hat.size());
         u = controller(x_hat_std, x_r);
@@ -225,8 +258,21 @@ int main() {
             x[i] += xd[i] * dt;
         }
         result.push_back({x[0], x[1], x[2], u[0]});
+        kalman_result.push_back({x_hat_std[0], x_hat_std[1], x_hat_std[2], x[0], x[1], x[2], (float)Kf.trace(), (float)P.trace()});
     }
-
+    
+    // Export debug data for Kalman filter
+    std::ofstream out_kalman{"kalman.csv"};
+    out_kalman << "x_hat_0" << "," << "x_hat_1" << "," << "x_hat_2" << "," << "x_0" << "," << "x_1" << "," << "x_2" << "," << "trace_Kf" << "," << "trace_P" << '\n';
+    for (const auto& x_k: kalman_result) {
+        if (x_k == kalman_result.back()) {
+            out_kalman << x_k[0] << "," << x_k[1] << "," << x_k[2] << "," << x_k[3] << "," << x_k[4] << "," << x_k[5] << "," << x_k[6] << "," << x_k[7];
+        }
+        else {
+            out_kalman << x_k[0] << "," << x_k[1] << "," << x_k[2] << "," << x_k[3] << "," << x_k[4] << "," << x_k[5] << "," << x_k[6] << "," << x_k[7] << '\n';
+        }
+    }
+    
     // Export reference trajectory
     std::ofstream out_path{"ref_trajectory.csv"};
     out_path << "psi_1" << "," << "psi_2" << "," << "y2" << '\n';
