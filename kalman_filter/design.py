@@ -30,6 +30,7 @@ print("B matrix:")
 print(np.array2string(dsys.B, precision=8, suppress_small=True))
 
 print("Controllable? ", np.linalg.matrix_rank(ct.ctrb(A, B)) == 3)
+print("Observable? ", np.linalg.matrix_rank(ct.obsv(A, B)) == 3)
 
 # Plot pole zero
 

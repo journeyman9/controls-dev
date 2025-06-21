@@ -373,12 +373,12 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
 
     // Minimize cost = ubar^T(Bbar^TQbarBbar + Rbar)ubar + 2 ubar^TBbar^TQbarAbarxo + xo^T Abar^T Qbar Abar xo
     MatrixXd A = MatrixXd::Identity(3, 3);
-    A(1, 0) = 1.0;
-    A(1, 1) = 1.01591814;
-    A(2, 1) = 1.0;
+    A(0, 0) = 1.0;
     A(1, 0) = -0.01591814;
+    A(1, 1) = 1.01591814;
     A(2, 0) = 0.00127772;
     A(2, 1) = -0.16223772;
+    A(2, 2) = 1.0;
 
     VectorXd B(3);
     B << -0.02804181, -0.00058163, 0.00005263;

@@ -101,7 +101,7 @@ MatrixXd kalman_filter(VectorXd& x_hat, const VectorXd& u_hat, MatrixXd& P, cons
     VectorXd y = z - H * x_hat; // Measurement residual
     MatrixXd S = H * P * H.transpose() + R; // Residual covariance
     MatrixXd Kf = P * H.transpose() * S.inverse(); // Kalman gain
-
+    
     x_hat = x_hat + Kf * y; // Updated state estimate
     P = (MatrixXd::Identity(3, 3) - (Kf * H)) * P * (MatrixXd::Identity(3, 3) - (Kf * H)).transpose() + Kf * R * Kf.transpose();
     
@@ -143,12 +143,12 @@ int main() {
 
     //Setup Kalman filter
     MatrixXd F = MatrixXd::Identity(3, 3);
-    F(1, 0) = 1.0;
-    F(1, 1) = 1.01591814;
-    F(2, 1) = 1.0;
+    F(0, 0) = 1.0;
     F(1, 0) = -0.01591814;
+    F(1, 1) = 1.01591814;
     F(2, 0) = 0.00127772;
     F(2, 1) = -0.16223772;
+    F(2, 2) = 1.0;
 
     VectorXd G(3);
     G << -0.02804181, -0.00058163, 0.00005263;
@@ -168,8 +168,8 @@ int main() {
     MatrixXd Q(3, 3); // Process noise covariance
     MatrixXd R(3, 3); // Measurement noise covariance
     
-    /*
     // Calculate covariance matrices 
+    /*
     vector<vector<float>> calibration = get_reference_trajectory("measurement_data.csv");
     Eigen::MatrixXd data(calibration.size(), 3);  
     Eigen::MatrixXd og_data(calibration.size(), 3);  
@@ -236,6 +236,28 @@ int main() {
     // If only using one sample
     x_hat = F*z + G*u_hat;
     P = F*P*F.transpose() + Q;
+
+    /*
+    vector<float> x_r = trajectory[0]; // Reference state for the first step
+    MatrixXd Kf = kalman_filter(x_hat, u_hat, P, z, Q, R, H, F, G, wn, x_r);
+
+    cout << "K: " << Kf << endl;
+    
+    MatrixXd check = F - (F * Kf * H);
+    cout << "Check A-BK:" << "\n" << check << endl;
+    
+    Eigen::EigenSolver<Eigen::MatrixXd> solver(check);
+    if (solver.info() == Eigen::Success) {
+        std::cout << "Eigenvalues:\n" << solver.eigenvalues() << std::endl;
+    } else {
+        std::cerr << "Failed to compute eigenvalues." << std::endl;
+    }
+    assert(false);
+    */
+    
+    // TODO: does it make sense to precalculate Kf?
+    //vector<float> x_r = trajectory[0]; // Reference state for the first step
+    //MatrixXd Kf = kalman_filter(x_hat, u_hat, P, z, Q, R, H, F, G, wn, x_r);
 
     for (const auto& x_r: trajectory) {
         // Add noise to the state
