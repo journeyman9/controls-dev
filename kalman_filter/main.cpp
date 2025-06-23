@@ -126,8 +126,9 @@ int main() {
     json config = json::parse(f);
     */
 
-    float T = 40.0; // seconds for total time of motion profile
-    float dt = 0.08; // seconds
+    float dt = 0.008; // seconds
+    float dt_controller = 0.08;
+    int steps_per_control = int(dt_controller / dt);
     vector<vector<float>> trajectory = get_reference_trajectory("trajectory_data.csv");
     vector<float> x = {trajectory[0][0], trajectory[0][1], trajectory[0][2]}; // Initial state
 
@@ -143,15 +144,43 @@ int main() {
 
     //Setup Kalman filter
     MatrixXd F = MatrixXd::Identity(3, 3);
+    // dt = 0.08
+    /*
     F(0, 0) = 1.0;
     F(1, 0) = -0.01591814;
     F(1, 1) = 1.01591814;
     F(2, 0) = 0.00127772;
     F(2, 1) = -0.16223772;
     F(2, 2) = 1.0;
+    */
+
+    // dt = 0.04
+    /*
+    F(0, 0) = 1.0;
+    F(1, 0) = -0.00792765;
+    F(1, 1) = 1.00792765;
+    F(2, 0) = 0.00031859;
+    F(2, 1) = -0.08079859;
+    F(2, 2) = 1.0;
+    */
+    
+    // dt = 0.008
+    F(0, 0) = 1.0;
+    F(1, 0) = -0.00158053;
+    F(1, 1) = 1.00158053;
+    F(2, 0) = 0.00001272;
+    F(2, 1) = -0.01610872;
+    F(2, 2) = 1.0;
 
     VectorXd G(3);
-    G << -0.02804181, -0.00058163, 0.00005263;
+    // dt = 0.08
+    //G << -0.02804181, -0.00058163, 0.00005263;
+    
+    // dt = 0.04
+    //G << -0.01402091, -0.00034502, 0.00001461;
+    
+    // dt = 0.008 
+    G << -0.00280418, -0.00007764, 0.00000063;
     
     //F = F * dt + MatrixXd::Identity(3, 3); // Discrete state transition matrix manually
     //G *= dt; // Discrete state input matrix manually from continuous
@@ -159,6 +188,7 @@ int main() {
     VectorXd wn = VectorXd::Zero(3); // Process noise, assuming no process noise for simplicity
     VectorXd z(3); // Measurement vector
     z << x[0], x[1], x[2]; // Measurement vector
+    //z[0] += std::clamp(dist(gen), -0.17f, 0.17f);
     z[1] += std::clamp(dist(gen), -0.17f, 0.17f);
     z[2] += std::clamp(dist(gen), -0.3f, 0.3f);
     
@@ -208,9 +238,9 @@ int main() {
          0.0, 0.0, 1.0; // Assuming direct measurement of state
     
     MatrixXd P(3, 3);
-    P << 1.0, 0.0, 0.0,
-         0.0, 1.0, 0.0,
-         0.0, 0.0, 1.0; // Initial covariance matrix
+    P << 500.0, 0.0, 0.0,
+         0.0, 500.0, 0.0,
+         0.0, 0.0, 500.0; // Initial covariance matrix
     
     VectorXd u_hat(1);
     u_hat << 0.0;
@@ -225,7 +255,7 @@ int main() {
 
         u_hat << x_m[6]; // Convert u to VectorXd for kalman_filter
         // Kalman filter step
-        Kf = kalman_filter(x_hat, u_hat, P, z, Q, R, H, F, G, wn, x_m);
+        MatrixXd Kf = kalman_filter(x_hat, u_hat, P, z, Q, R, H, F, G, wn, x_m);
         //x_hat passed by reference
         
         x_hat = F*x_hat + G*x_m[6];
@@ -244,7 +274,7 @@ int main() {
     cout << "K: " << Kf << endl;
     
     MatrixXd check = F - (F * Kf * H);
-    cout << "Check A-BK:" << "\n" << check << endl;
+    cout << "Check A-AKH:" << "\n" << check << endl;
     
     Eigen::EigenSolver<Eigen::MatrixXd> solver(check);
     if (solver.info() == Eigen::Success) {
@@ -259,6 +289,7 @@ int main() {
     //vector<float> x_r = trajectory[0]; // Reference state for the first step
     //MatrixXd Kf = kalman_filter(x_hat, u_hat, P, z, Q, R, H, F, G, wn, x_r);
 
+    int count = 0;
     for (const auto& x_r: trajectory) {
         // Add noise to the state
         z << x[0], x[1], x[2]; // Measurement vector
@@ -270,8 +301,11 @@ int main() {
         u_hat << u[0]; // Convert u to VectorXd for kalman_filter
         MatrixXd Kf = kalman_filter(x_hat, u_hat, P, z, Q, R, H, F, G, wn, x_r);
         //x_hat passed by reference
+        
         std::vector<float> x_hat_std(x_hat.data(), x_hat.data() + x_hat.size());
-        u = controller(x_hat_std, x_r);
+        if (count % steps_per_control == 0) {
+            u = controller(x_hat_std, x_r);
+        }
 
         xd = plant(x, u);
 
@@ -281,6 +315,7 @@ int main() {
         }
         result.push_back({x[0], x[1], x[2], u[0]});
         kalman_result.push_back({x_hat_std[0], x_hat_std[1], x_hat_std[2], x[0], x[1], x[2], (float)Kf.trace(), (float)P.trace()});
+        count += 1;
     }
     
     // Export debug data for Kalman filter

@@ -19,7 +19,7 @@ B = np.array([v1x/L1, -h*v1x/(L1*L2), 0]).reshape(-1, 1)
 C = np.eye(3)
 D = np.zeros((3, 1))
 
-dt = 0.08
+dt = 0.008
 sys = ct.ss(A, B, C, D)
 dsys = ct.c2d(sys, dt, method='zoh')
 
