@@ -113,13 +113,18 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
     MatrixXd R = MatrixXd::Identity(1, 1);
 
     /*
-    Q(0, 0) = 10.0;
-    Q(1, 1) = 10.0;
-    Q(2, 2) = 1.0;
+    Q(0, 0) = 820.7016;
+    Q(1, 1) = 820.7016;
+    Q(2, 2) = 100.0;
 
-    R *= 0.1;
+    R(0) = 1.6211;
     */
-
+    Q(0, 0) = 10.0;
+    Q(1, 1) = 100.0;
+    Q(2, 2) = 100.0;
+    
+    R(0, 0) *= 0.1;
+    
     MatrixXd Qbar = MatrixXd::Zero(3*N, 3*N);
     for(int i = 0; i < N; i++) {
         Qbar.block<3,3>(i*3, i*3) = Q;
@@ -134,8 +139,7 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
     // Construct Abar and Bbar
     MatrixXd Abar = MatrixXd::Zero(3*N, 3);
     MatrixXd Bbar = MatrixXd::Zero(3*N, N);
-    MatrixXd A_power = MatrixXd::Identity(3, 3);
-    A_power = A;
+    MatrixXd A_power = A;
     for(int i = 0; i < N; i++) {
         Abar.block<3, 3>(i*3, 0) = A_power;
         A_power *= A;
@@ -149,12 +153,15 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
         A^(N-1)*B, A^(N-2)*B, A^(N-3)*B, ..., B
     ]
     */
-    A_power = A;
-    for(int i = 0; i < N; i++) {
-        for(int j = 0; j <= i; j++) {
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j <= i; j++) {
+            // Calculate A^(i-j) * B
+            MatrixXd A_power = MatrixXd::Identity(3, 3);
+            for (int k = 0; k < (i - j); k++) {
+                A_power *= A;
+            }
             Bbar.block<3, 1>(i*3, j) = A_power * B;
         }
-        A_power *= A; // Update A_power to A^(j+1)
     }
     /*
     std::cout << "Abar dimensions: " << Abar.rows() << "x" << Abar.cols() << std::endl;
@@ -179,10 +186,11 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
     cout << "ubar: " << ubar.transpose() << endl;
     
     // Check if the closed-loop system is stable using first row of K
-    // The closed-loop system is stable if the eigenvalues of A + B*K are all negative
+    // The closed-loop system is stable if the eigenvalues of A - B*K are all less than 1 
     // This is a simplified check, assuming the first row of K is used for control
     MatrixXd check = A - (B * K.row(0));
     
+    /*
     cout << "Check A-BK:" << "\n" << check << endl;
 
     Eigen::EigenSolver<Eigen::Matrix3d> solver(check);
@@ -191,10 +199,18 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
     } else {
         std::cerr << "Failed to compute eigenvalues." << std::endl;
     }
+    */
 
-    assert(false);
+    // Assert eigenvalues are all less than 1
+    Eigen::EigenSolver<Eigen::Matrix3d> solver(check);
+    for (int i = 0; i < solver.eigenvalues().size(); ++i) {
+        if (std::abs(solver.eigenvalues()[i].real()) >= 1.0) {
+            std::cerr << "Closed-loop system is unstable!" << std::endl;
+            assert(false);
+        }
+    }
 
-    u[0] = ubar(0); // Extract the first element of ubar
+    u[0] = std::clamp(ubar[0],-0.78539816, 0.78539816);
 
     return u;
 }
@@ -212,7 +228,7 @@ int main() {
     float S1 = 0.2; // psi_1 [radians]
     float S2 = 0.2; // psi_2 [radians]
     float S3 = 5.0; // y2 [m]
-    int N = 6; // Horizon length
+    int N = 10; // Horizon length
     /*
     vector<float> x = {1*S1, 1*S2, -1 * S3}; // Initial state
     

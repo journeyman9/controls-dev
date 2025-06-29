@@ -412,8 +412,7 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
     // Construct Abar and Bbar
     MatrixXd Abar = MatrixXd::Zero(3*N, 3);
     MatrixXd Bbar = MatrixXd::Zero(3*N, N);
-    MatrixXd A_power = MatrixXd::Identity(3, 3);
-    A_power = A;
+    MatrixXd A_power = A;
     for(int i = 0; i < N; i++) {
         Abar.block<3, 3>(i*3, 0) = A_power;
         A_power *= A;
@@ -427,12 +426,15 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
         A^(N-1)*B, A^(N-2)*B, A^(N-3)*B, ..., B
     ]
     */
-    A_power = A;
-    for(int i = 0; i < N; i++) {
-        for(int j = 0; j <= i; j++) {
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j <= i; j++) {
+            // Calculate A^(i-j) * B
+            MatrixXd A_power = MatrixXd::Identity(3, 3);
+            for (int k = 0; k < (i - j); k++) {
+                A_power *= A;
+            }
             Bbar.block<3, 1>(i*3, j) = A_power * B;
         }
-        A_power = A_power * A; // Update A_power to A^(j+1)
     }
     /*
     std::cout << "Abar dimensions: " << Abar.rows() << "x" << Abar.cols() << std::endl;
