@@ -44,6 +44,45 @@ vector<float> plant(const vector<float>& x, const vector<float>& u) {
     float v2 = v1 * cos(theta) + (v1 * h * tan(u[0]) / L1) * sin(theta);
 
     xd.push_back(v2 * sin(x[1]));
+
+    // Discrete
+    /*
+    MatrixXd A = MatrixXd::Identity(3, 3);
+    VectorXd B = VectorXd(3);
+    // Implement state space discrete model
+    A(0, 0) = 1.0;
+    A(1, 0) = -0.00158053;
+    A(1, 1) = 1.00158053;
+    A(2, 0) = 0.00001272;
+    A(2, 1) = -0.01610872;
+    A(2, 2) = 1.0;
+    
+    B << -0.00280418, -0.00007764, 0.00000063;
+    */
+    
+    // Continuous State space
+    /*
+    MatrixXd A = MatrixXd::Constant(3, 3, 0.0);
+    A(1, 0) = -0.19740973;
+    A(1, 1) = 0.19740973;
+    A(2, 1) = -2.0120;
+
+    VectorXd B(3);
+    B << -0.35052265, -0.00997366, 0;
+    */
+    
+    /*
+    VectorXd x_vec(3);
+    x_vec << x[0], x[1], x[2];
+    VectorXd u_vec(1);
+    u_vec << u[0];
+    VectorXd xd_vec = A * x_vec + B * u_vec;
+    vector<float> xd(3);
+    xd[0] = xd_vec(0);
+    xd[1] = xd_vec(1);
+    xd[2] = xd_vec(2);
+    */
+    
     return xd;
 }
 
@@ -80,6 +119,10 @@ vector<vector<float>> get_reference_trajectory(string filename = "trajectory_dat
 
 vector<float> controller(vector<float> x, vector<float> x_r) {
     vector<float> K = {-27.60653245, 99.8307537, -7.85407596}; 
+    // Discrete .08
+    //vector<float> K = {-20.26030997, 72.07448439, -5.57790699};
+    // Discrete .008
+    //vector<float> K = {-26.74194825, 96.56371101, -7.5860704};
     vector<float> u(1, 0.0);
 
     for (int i=0; i<3; ++i) {
@@ -89,12 +132,7 @@ vector<float> controller(vector<float> x, vector<float> x_r) {
     return u;
 }
 
-MatrixXd kalman_filter(VectorXd& x_hat, const VectorXd& u_hat, MatrixXd& P, const VectorXd& z, const MatrixXd& Q, const MatrixXd& R, const MatrixXd& H, const MatrixXd& F, const VectorXd& G, const VectorXd& wn, const vector<float> x_r) {
-    VectorXd x_rr = VectorXd(3);
-    x_rr << x_r[0], x_r[1], x_r[2];
-
-    VectorXd xd_rr = VectorXd(3);
-    xd_rr << x_r[3], x_r[4], x_r[5];
+MatrixXd kalman_filter(VectorXd& x_hat, const VectorXd& u_k, MatrixXd& P, const VectorXd& z, const MatrixXd& Q, const MatrixXd& R, const MatrixXd& H, const MatrixXd& F, const VectorXd& G) {
 
     // TODO: Update step need to happen over multiple measurements? Warm start?
     // Update step
@@ -106,7 +144,7 @@ MatrixXd kalman_filter(VectorXd& x_hat, const VectorXd& u_hat, MatrixXd& P, cons
     P = (MatrixXd::Identity(3, 3) - (Kf * H)) * P * (MatrixXd::Identity(3, 3) - (Kf * H)).transpose() + Kf * R * Kf.transpose();
     
     // Prediction step
-    x_hat = F*x_hat + G*u_hat;
+    x_hat = F*x_hat + G*u_k;
     P = F*P*F.transpose() + Q;
     return Kf;
 }
@@ -131,6 +169,8 @@ int main() {
     int steps_per_control = int(dt_controller / dt);
     vector<vector<float>> trajectory = get_reference_trajectory("trajectory_data.csv");
     vector<float> x = {trajectory[0][0], trajectory[0][1], trajectory[0][2]}; // Initial state
+    // TODO: remove
+    //x[2] += 0.1;
 
     vector<float> u{0};
     vector<float> xd;
@@ -140,7 +180,7 @@ int main() {
 
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::normal_distribution<float> dist(0.0, 0.04);
+    std::normal_distribution<float> dist(0.0, 0.005);
 
     //Setup Kalman filter
     MatrixXd F = MatrixXd::Identity(3, 3);
@@ -151,16 +191,6 @@ int main() {
     F(1, 1) = 1.01591814;
     F(2, 0) = 0.00127772;
     F(2, 1) = -0.16223772;
-    F(2, 2) = 1.0;
-    */
-
-    // dt = 0.04
-    /*
-    F(0, 0) = 1.0;
-    F(1, 0) = -0.00792765;
-    F(1, 1) = 1.00792765;
-    F(2, 0) = 0.00031859;
-    F(2, 1) = -0.08079859;
     F(2, 2) = 1.0;
     */
     
@@ -176,21 +206,17 @@ int main() {
     // dt = 0.08
     //G << -0.02804181, -0.00058163, 0.00005263;
     
-    // dt = 0.04
-    //G << -0.01402091, -0.00034502, 0.00001461;
-    
     // dt = 0.008 
     G << -0.00280418, -0.00007764, 0.00000063;
     
     //F = F * dt + MatrixXd::Identity(3, 3); // Discrete state transition matrix manually
     //G *= dt; // Discrete state input matrix manually from continuous
 
-    VectorXd wn = VectorXd::Zero(3); // Process noise, assuming no process noise for simplicity
     VectorXd z(3); // Measurement vector
     z << x[0], x[1], x[2]; // Measurement vector
     //z[0] += std::clamp(dist(gen), -0.17f, 0.17f);
-    z[1] += std::clamp(dist(gen), -0.17f, 0.17f);
-    z[2] += std::clamp(dist(gen), -0.3f, 0.3f);
+    z[1] += std::clamp(dist(gen), -0.1f, 0.1f);
+    z[2] += std::clamp(dist(gen), -0.05f, 0.05f);
     
     VectorXd x_hat(3); // Initial state estimate
     x_hat << z[0], z[1], z[2]; // Initial state estimate from measurement
@@ -199,7 +225,6 @@ int main() {
     MatrixXd R(3, 3); // Measurement noise covariance
     
     // Calculate covariance matrices 
-    /*
     vector<vector<float>> calibration = get_reference_trajectory("measurement_data.csv");
     Eigen::MatrixXd data(calibration.size(), 3);  
     Eigen::MatrixXd og_data(calibration.size(), 3);  
@@ -212,9 +237,10 @@ int main() {
         og_data(i, 2) = x_m[2];
         
         // Add noise and populate noisy data
+        //data(i, 0) = x_m[0] + std::clamp(dist(gen), -0.1f, 0.1f);
         data(i, 0) = x_m[0];
-        data(i, 1) = x_m[1] + std::clamp(dist(gen), -0.17f, 0.17f);
-        data(i, 2) = x_m[2] + std::clamp(dist(gen), -0.3f, 0.3f);
+        data(i, 1) = x_m[1] + std::clamp(dist(gen), -0.1f, 0.1f);
+        data(i, 2) = x_m[2] + std::clamp(dist(gen), -0.05f, 0.05f);
     }
     
     // Calculate Process noise covariance Q
@@ -222,8 +248,8 @@ int main() {
 
     // Calculate Measurement noise covariance R
     R = get_covariance_matrix(data);
-    */
 
+    /*
     Q << 0.01, 0.0, 0.0,
          0.0, 0.01, 0.0,
          0.0, 0.0, 0.01; // Process noise covariance matrix
@@ -231,6 +257,7 @@ int main() {
     R << pow(0.04, 2), 0.0, 0.0,
          0.0, pow(0.04, 2), 0.0,
          0.0, 0.0, pow(0.04, 2); // Measurement noise covariance matrix
+    */
 
     MatrixXd H(3, 3); // Measurement matrix
     H << 1.0, 0.0, 0.0,
@@ -242,34 +269,33 @@ int main() {
          0.0, 500.0, 0.0,
          0.0, 0.0, 500.0; // Initial covariance matrix
     
-    VectorXd u_hat(1);
-    u_hat << 0.0;
+    VectorXd u_k(1);
+    u_k << 0.0;
     
-    // TODO: Does calibration make sense, measurement_data needs u to pass in u_hat
-    /*
+    // TODO: Does calibration make sense, measurement_data needs u to pass in u_k
     for (auto& x_m: calibration) {
         // Add noise to the state
         z << x_m[0], x_m[1], x_m[2]; // Measurement vector
-        z[1] += std::clamp(dist(gen), -0.17f, 0.17f);
-        z[2] += std::clamp(dist(gen), -0.3f, 0.3f);
+        //z[0] += std::clamp(dist(gen), -0.1f, 0.1f);
+        z[1] += std::clamp(dist(gen), -0.1f, 0.1f);
+        z[2] += std::clamp(dist(gen), -0.05f, 0.05f);
 
-        u_hat << x_m[6]; // Convert u to VectorXd for kalman_filter
+        u_k << x_m[6]; // Convert u to VectorXd for kalman_filter
         // Kalman filter step
-        MatrixXd Kf = kalman_filter(x_hat, u_hat, P, z, Q, R, H, F, G, wn, x_m);
+        MatrixXd Kf = kalman_filter(x_hat, u_k, P, z, Q, R, H, F, G);
         //x_hat passed by reference
         
         x_hat = F*x_hat + G*x_m[6];
         P = F*P*F.transpose() + Q;
     }
-    */
 
     // If only using one sample
-    x_hat = F*z + G*u_hat;
-    P = F*P*F.transpose() + Q;
+    //x_hat = F*z + G*u_k;
+    //P = F*P*F.transpose() + Q;
 
     /*
     vector<float> x_r = trajectory[0]; // Reference state for the first step
-    MatrixXd Kf = kalman_filter(x_hat, u_hat, P, z, Q, R, H, F, G, wn, x_r);
+    MatrixXd Kf = kalman_filter(x_hat, u_k, P, z, Q, R, H, F, G);
 
     cout << "K: " << Kf << endl;
     
@@ -287,24 +313,28 @@ int main() {
     
     // TODO: does it make sense to precalculate Kf?
     //vector<float> x_r = trajectory[0]; // Reference state for the first step
-    //MatrixXd Kf = kalman_filter(x_hat, u_hat, P, z, Q, R, H, F, G, wn, x_r);
+    //MatrixXd Kf = kalman_filter(x_hat, u_k, P, z, Q, R, H, F, G);
 
     int count = 0;
-    for (const auto& x_r: trajectory) {
+    for (auto& x_r: trajectory) {
         // Add noise to the state
         z << x[0], x[1], x[2]; // Measurement vector
-        //z[0] += std::clamp(dist(gen), -0.17f, 0.17f);
-        z[1] += std::clamp(dist(gen), -0.17f, 0.17f);
-        z[2] += std::clamp(dist(gen), -0.3f, 0.3f);
+        //z[0] += std::clamp(dist(gen), -0.1f, 0.1f);
+        z[1] += std::clamp(dist(gen), -0.1f, 0.1f);
+        z[2] += std::clamp(dist(gen), -0.05f, 0.05f);
 
         // Kalman filter step
-        u_hat << u[0]; // Convert u to VectorXd for kalman_filter
-        MatrixXd Kf = kalman_filter(x_hat, u_hat, P, z, Q, R, H, F, G, wn, x_r);
+        u_k << u[0]; // Convert u to VectorXd for kalman_filter
+        MatrixXd Kf = kalman_filter(x_hat, u_k, P, z, Q, R, H, F, G);
         //x_hat passed by reference
         
+        cout << x[0] << "," << x[1] << "," << x[2] << endl;
         std::vector<float> x_hat_std(x_hat.data(), x_hat.data() + x_hat.size());
+        cout << x_hat_std[0] << "," << x_hat_std[1] << "," << x_hat_std[2] << endl;
+        //assert(false);
         if (count % steps_per_control == 0) {
             u = controller(x_hat_std, x_r);
+            u[0] = std::clamp(u[0],-0.78539816f, 0.78539816f);
         }
 
         xd = plant(x, u);
@@ -313,6 +343,35 @@ int main() {
         for (int i = 0; i < 3; ++i) {
             x[i] += xd[i] * dt;
         }
+        
+        // Runge-Kutta 4th order (RK4) - more accurate
+        /*
+        vector<float> k1 = plant(x, u);
+        vector<float> x_temp1(3);
+        for(int i = 0; i < 3; ++i) x_temp1[i] = x[i] + 0.5 * dt * k1[i];
+        
+        vector<float> k2 = plant(x_temp1, u);
+        vector<float> x_temp2(3);
+        for(int i = 0; i < 3; ++i) x_temp2[i] = x[i] + 0.5 * dt * k2[i];
+        
+        vector<float> k3 = plant(x_temp2, u);
+        vector<float> x_temp3(3);
+        for(int i = 0; i < 3; ++i) x_temp3[i] = x[i] + dt * k3[i];
+        
+        vector<float> k4 = plant(x_temp3, u);
+        
+        for(int i = 0; i < 3; ++i) {
+            x[i] += (dt/6.0) * (k1[i] + 2*k2[i] + 2*k3[i] + k4[i]);
+        }
+        */
+        
+        // For discrete sim
+        /*
+        x[0] = xd[0];
+        x[1] = xd[1];
+        x[2] = xd[2];
+        */
+        
         result.push_back({x[0], x[1], x[2], u[0]});
         kalman_result.push_back({x_hat_std[0], x_hat_std[1], x_hat_std[2], x[0], x[1], x[2], (float)Kf.trace(), (float)P.trace()});
         count += 1;

@@ -397,15 +397,21 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
     // Cost matrices
     MatrixXd Q = MatrixXd::Identity(3, 3);
     MatrixXd R = MatrixXd::Identity(1, 1);
+    
+    Q(0, 0) = 10.0; // Weight for psi_1
+    Q(1, 1) = 100.0; // Weight for psi_2
+    Q(2, 2) = 100.0;   // Weight for y
+    
+    R(0, 0) *= 0.1;
 
     MatrixXd Qbar = MatrixXd::Zero(3*N, 3*N);
-    for(int i = 0; i < N; i++) {
+    for (int i = 0; i < N; i++) {
         Qbar.block<3,3>(i*3, i*3) = Q;
     }
 
     // Similarly for Rbar
     MatrixXd Rbar = MatrixXd::Zero(N, N);
-    for(int i = 0; i < N; i++) {
+    for (int i = 0; i < N; i++) {
         Rbar(i,i) = R(0,0);
     }
 
@@ -413,7 +419,7 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
     MatrixXd Abar = MatrixXd::Zero(3*N, 3);
     MatrixXd Bbar = MatrixXd::Zero(3*N, N);
     MatrixXd A_power = A;
-    for(int i = 0; i < N; i++) {
+    for (int i = 0; i < N; i++) {
         Abar.block<3, 3>(i*3, 0) = A_power;
         A_power *= A;
     }
@@ -469,6 +475,7 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
     }
 
     u[0] = dynamic_cast<QuadraticNLP*>(GetRawPtr(mynlp))->getSolution();
+    u[0] = std::clamp(u[0],-0.78539816f, 0.78539816f);
     return u;
 }
 
@@ -485,7 +492,7 @@ int main() {
     float S1 = 0.2; // psi_1 [radians]
     float S2 = 0.2; // psi_2 [radians]
     float S3 = 5.0; // y2 [m]
-    int N = 6; // Horizon length
+    int N = 5; // Horizon length
     /*
     vector<float> x = {1*S1, 1*S2, -1 * S3}; // Initial state
     

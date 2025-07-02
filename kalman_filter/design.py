@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import control as ct
+from scipy.signal import cont2discrete
+
 
 L1 = 5.74
 L2 = 10.192
@@ -64,6 +66,17 @@ plt.show()
 """
 
 # LQR
+"""
+Q = np.array(
+    [
+        [1.0, 0, 0],
+        [0, 1.0, 0],
+        [0, 0, 1.0]
+    ]
+)
+
+R = 1.0
+"""
 Q = np.array(
     [
         [820.7016, 0, 0],
@@ -74,5 +87,13 @@ Q = np.array(
 
 R = 1.6211
 
+#Q /= dt
+#R /= dt
+
+print(Q)
+print(R)
+
 K, S, E = ct.dlqr(dsys, Q, R)
+#K, S, E = ct.lqr(sys, Q, R)
 print("K: ", K)
+print("Eigen:", E)

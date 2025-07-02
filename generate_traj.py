@@ -5,13 +5,22 @@ import pandas as pd
 import json
 
 env = gym.make('TruckBackerUpper-v0').unwrapped
+# Trajectory
 q0 = [2.0, -3.0, 123.0] # x, y, theta
 qg = [-8.0, -29.0, 215.0]
 
+# Debug
+#q0 = [-25.0, 0.0, 0.0] 
+#qg = [25.0, 0.0, 0.0]
+
+# Measurement
 #q0 = [21.0, -16.0, 180.0]
 #qg = [14.0, 11.0, 3.0]
 env.manual_params(L2=10.192, h=-0.29)
 env.manual_course(q0, qg)
+env.dt = 0.008
+print(env.dt)
+env.num_steps = int((160 - 0)/env.dt) + 1
 
 done = False
 s = env.reset()
@@ -39,7 +48,7 @@ data.append({
 })
 
 while not done:
-    env.render()
+    #env.render()
 
     # Example action from LQR, replace with RL policy
     #K = np.array([-24.7561, 94.6538, -7.8540])
@@ -73,4 +82,7 @@ env.close()
 
 # Convert to a DataFrame and save as CSV
 df = pd.DataFrame(data)
+
+df['psi_1'] -= np.pi
+df['psi_2'] -= np.pi
 df.to_csv("trajectory_data.csv", index=False)
