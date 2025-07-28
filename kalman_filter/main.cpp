@@ -10,12 +10,23 @@
 #include <algorithm>
 #include <Eigen/Dense>
 #include <random>
+
+#define _USE_MATH_DEFINES
+#include <cmath>
  
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
 using namespace std;
 using json = nlohmann::json;
+
+// wrapped angle difference  (−π , π]
+inline float safe_minus(float r, float c)
+{
+    const float d = r - c;
+    if (std::fabs(d) <= static_cast<float>(M_PI)) return d;
+    return d - 2.0f * static_cast<float>(M_PI) * std::copysign(1.0f, d);
+}
 
 vector<float> plant(const vector<float>& x, const vector<float>& u) {
     /*
@@ -125,9 +136,15 @@ vector<float> controller(vector<float> x, vector<float> x_r) {
     //vector<float> K = {-26.74194825, 96.56371101, -7.5860704};
     vector<float> u(1, 0.0);
 
-    for (int i=0; i<3; ++i) {
-        u[0] -= K[i] * (x[i] - x_r[i]);
-    }
+    // Use safe_minus to handle angle wrapping
+    x[0] = safe_minus(x[0], x_r[0]);
+    x[1] = safe_minus(x[1], x_r[1]);
+
+    // Calculate control input where x[0] is psi_1, x[1] is psi_2, x[2] is y_2
+    u[0] = -K[0] * x[0] - K[1] * x[1] - K[2] * (x[2] - x_r[2]);
+    //for (int i=0; i<3; ++i) {
+    //    u[0] -= K[i] * (x[i] - x_r[i]);
+    //}
 
     return u;
 }
@@ -137,11 +154,13 @@ MatrixXd kalman_filter(VectorXd& x_hat, const VectorXd& u_k, MatrixXd& P, const 
     x_hat = F*x_hat + G*u_k;
     P = F*P*F.transpose() + Q;
 
+    VectorXd y = z - (H*x_hat); // Innovation
+    y[0] = safe_minus(z[0], (H*x_hat)[0]); // Wrap angle difference to (-π, π]
+    y[1] = safe_minus(z[1], (H*x_hat)[1]); // Wrap angle difference to (-π, π]
     // Update step
     MatrixXd Kf = P * H.transpose() * (H * P * H.transpose() + R).inverse(); // Kalman gain
-    x_hat = x_hat + Kf * (z - (H*x_hat)); // Output state
+    x_hat = x_hat + Kf * (y); // Output state
     P = (MatrixXd::Identity(3, 3) - (Kf * H)) * P * (MatrixXd::Identity(3, 3) - (Kf * H)).transpose() + Kf * R * Kf.transpose();
-    //P = (MatrixXd::Identity(3, 3) - Kf * H) * P; // Update covariance matrix
     return Kf;
 }
 
@@ -152,6 +171,7 @@ Eigen::MatrixXd get_covariance_matrix(const Eigen::MatrixXd& mat) {
     return covariance;
 }
 
+auto wrap = [](float a){ return std::atan2(std::sin(a), std::cos(a)); };
 
 int main() {
     // Read vars from config file
@@ -265,17 +285,16 @@ int main() {
     R = get_covariance_matrix(data);
     */
 
-    /*
-    Q << 0.001, 0.0, 0.0,
-         0.0, 0.001, 0.0,
-         0.0, 0.0, 0.01; // Process noise covariance matrix
+    Q << 0.00001, 0.0, 0.0,
+         0.0, 0.00001, 0.0,
+         0.0, 0.0, 0.005; // Process noise covariance matrix
     
-    R << pow(0.01, 2), 0.0, 0.0,
-         0.0, pow(0.01, 2), 0.0,
-         0.0, 0.0, pow(0.1, 2); // Measurement noise covariance matrix
-    */
+    R << pow(0.06, 2), 0.0, 0.0,
+         0.0, pow(0.06, 2), 0.0,
+         0.0, 0.0, pow(0.25, 2); // Measurement noise covariance matrix
     
     // Very small Q since there's no process noise in the plant model
+    /*
     Q << 0.01, 0.0, 0.0,        // Very small psi_1 process noise
          0.0, 0.01, 0.0,        // Very small psi_2 process noise  
          0.0, 0.0, 0.1;        // Very small y2 process noise
@@ -291,6 +310,7 @@ int main() {
     }
     
     R = get_covariance_matrix(noise_data);
+    */
 
     MatrixXd H(3, 3); // Measurement matrix
     H << 1.0, 0.0, 0.0,
@@ -299,9 +319,9 @@ int main() {
     
     MatrixXd P(3, 3);
     // Initial covariance matrix
-    P << 1.0, 0.0, 0.0, // truck yaw
-         0.0, 1.0, 0.0, // trailer yaw
-         0.0, 0.0, 5.0;  // cross track error
+    P << 0.001, 0.0, 0.0, // truck yaw
+         0.0, 0.001, 0.0, // trailer yaw
+         0.0, 0.0, 0.001;  // cross track error
     
     VectorXd u_k(1);
     
@@ -403,8 +423,11 @@ int main() {
         //z[0] += std::clamp(dist(gen), -0.1f, 0.1f);
         //z[1] += std::clamp(dist(gen), -0.1f, 0.1f);
         //z[2] += std::clamp(dist(gen), -0.05f, 0.05f);
-        z[0] += yaw_noise(gen);
-        z[1] += yaw_noise(gen);
+        //z[0] += yaw_noise(gen);
+        //z[1] += yaw_noise(gen);
+
+        z[0] = wrap(x[0] + yaw_noise(gen));
+        z[1] = wrap(x[1] + yaw_noise(gen));
         z[2] += pos_noise(gen);
 
         // Kalman filter step
@@ -414,11 +437,13 @@ int main() {
         //cout << x[0] << "," << x[1] << "," << x[2] << endl;
         std::vector<float> x_hat_std(x_hat.data(), x_hat.data() + x_hat.size());
         std::vector<float> z_std(z.data(), z.data() + z.size());
+        std::vector<float> x_std(x.data(), x.data() + x.size());
         //cout << x_hat_std[0] << "," << x_hat_std[1] << "," << x_hat_std[2] << endl;
         //assert(false);
         if (count % steps_per_control == 0) {
             u = controller(x_hat_std, x_r);
             //u = controller(z_std, x_r);
+            //u = controller(x_std, x_r);
             u[0] = std::clamp(u[0], -0.78539816f, 0.78539816f);
         }
         u_applied = u[0];     // remember for next iteration
