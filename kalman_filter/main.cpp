@@ -138,12 +138,10 @@ MatrixXd kalman_filter(VectorXd& x_hat, const VectorXd& u_k, MatrixXd& P, const 
     P = F*P*F.transpose() + Q;
 
     // Update step
-    VectorXd y = z - H * x_hat; // Measurement residual
-    MatrixXd S = H * P * H.transpose() + R; // Residual covariance
-    MatrixXd Kf = P * H.transpose() * S.inverse(); // Kalman gain
-    
-    x_hat = x_hat + Kf * y; // Output state
+    MatrixXd Kf = P * H.transpose() * (H * P * H.transpose() + R).inverse(); // Kalman gain
+    x_hat = x_hat + Kf * (z - (H*x_hat)); // Output state
     P = (MatrixXd::Identity(3, 3) - (Kf * H)) * P * (MatrixXd::Identity(3, 3) - (Kf * H)).transpose() + Kf * R * Kf.transpose();
+    //P = (MatrixXd::Identity(3, 3) - Kf * H) * P; // Update covariance matrix
     return Kf;
 }
 
@@ -183,11 +181,14 @@ int main() {
     //std::mt19937 gen(rd());
     std::mt19937 gen(42);
     //std::normal_distribution<float> dist(0.0, 0.04);
+    std::normal_distribution<float> yaw_noise(0.0, 0.02);
+    std::normal_distribution<float> pos_noise(0.0, 0.25);
     //Uniform distribution for noise
-    //std::uniform_real_distribution<float> yaw_noise(-0.01, 0.01);
-    //std::uniform_real_distribution<float> pos_noise(-0.1, 0.1);
-    std::uniform_real_distribution<float> yaw_noise(-0.05, 0.05);
-    std::uniform_real_distribution<float> pos_noise(-0.5, 0.5);
+    //std::uniform_real_distribution<float> yaw_noise(-0.05, 0.05);
+    //std::uniform_real_distribution<float> pos_noise(-0.5, 0.5);
+    
+    std::normal_distribution<float> process_noise_psi(0.0, 0.1);   // Process noise for angles
+    std::normal_distribution<float> process_noise_y(0.0, 0.3);     // Process noise for position
 
     //Setup Kalman filter
     MatrixXd F = MatrixXd::Identity(3, 3);
@@ -224,8 +225,9 @@ int main() {
     //z[0] += std::clamp(dist(gen), -0.17f, 0.17f);
     //z[1] += std::clamp(dist(gen), -0.1f, 0.1f);
     //z[2] += std::clamp(dist(gen), -0.05f, 0.05f);
-    z[1] += yaw_noise(gen);
-    z[2] += pos_noise(gen);
+    //z[0] += yaw_noise(gen); // Add noise to psi_1
+    //z[1] += yaw_noise(gen);
+    //z[2] += pos_noise(gen);
 
     VectorXd x_hat(3); // Initial state estimate
     x_hat << z[0], z[1], z[2]; // Initial state estimate from measurement
@@ -234,6 +236,7 @@ int main() {
     MatrixXd R(3, 3); // Measurement noise covariance
     
     // Calculate covariance matrices 
+    /*
     vector<vector<float>> calibration = get_reference_trajectory("measurement_data.csv");
     Eigen::MatrixXd data(calibration.size(), 3);  
     Eigen::MatrixXd og_data(calibration.size(), 3);  
@@ -246,10 +249,11 @@ int main() {
         og_data(i, 2) = x_m[2];
         
         // Add noise and populate noisy data
-        data(i, 0) = x_m[0];
+        //data(i, 0) = x_m[0];
         //data(i, 0) = x_m[0] + std::clamp(dist(gen), -0.1f, 0.1f);
         //data(i, 1) = x_m[1] + std::clamp(dist(gen), -0.1f, 0.1f);
         //data(i, 2) = x_m[2] + std::clamp(dist(gen), -0.05f, 0.05f);
+        data(i, 0) = x_m[0] + yaw_noise(gen);
         data(i, 1) = x_m[1] + yaw_noise(gen);
         data(i, 2) = x_m[2] + pos_noise(gen);
     }
@@ -259,16 +263,34 @@ int main() {
 
     // Calculate Measurement noise covariance R
     R = get_covariance_matrix(data);
+    */
 
     /*
-    Q << 0.01, 0.0, 0.0,
-         0.0, 0.01, 0.0,
+    Q << 0.001, 0.0, 0.0,
+         0.0, 0.001, 0.0,
          0.0, 0.0, 0.01; // Process noise covariance matrix
     
     R << pow(0.01, 2), 0.0, 0.0,
          0.0, pow(0.01, 2), 0.0,
          0.0, 0.0, pow(0.1, 2); // Measurement noise covariance matrix
     */
+    
+    // Very small Q since there's no process noise in the plant model
+    Q << 0.01, 0.0, 0.0,        // Very small psi_1 process noise
+         0.0, 0.01, 0.0,        // Very small psi_2 process noise  
+         0.0, 0.0, 0.1;        // Very small y2 process noise
+
+    // Estimate R from actual noise samples
+    int noise_samples = 1000;
+    Eigen::MatrixXd noise_data(noise_samples, 3);
+    
+    for (int i = 0; i < noise_samples; i++) {
+        noise_data(i, 0) = yaw_noise(gen);   // psi_1 noise
+        noise_data(i, 1) = yaw_noise(gen);   // psi_2 noise
+        noise_data(i, 2) = pos_noise(gen);   // y2 noise
+    }
+    
+    R = get_covariance_matrix(noise_data);
 
     MatrixXd H(3, 3); // Measurement matrix
     H << 1.0, 0.0, 0.0,
@@ -277,13 +299,14 @@ int main() {
     
     MatrixXd P(3, 3);
     // Initial covariance matrix
-    P << 50.0, 0.0, 0.0, // truck yaw
-         0.0, 50.0, 0.0, // trailer yaw
-         0.0, 0.0, 50.0;  // cross track error
+    P << 1.0, 0.0, 0.0, // truck yaw
+         0.0, 1.0, 0.0, // trailer yaw
+         0.0, 0.0, 5.0;  // cross track error
     
     VectorXd u_k(1);
-    u_k << 0.0;
     
+    /*
+    float u_applied_calibration = 0.0f; // Initial control input
     // TODO: Does calibration make sense, measurement_data needs u to pass in u_k
     for (auto& x_m: calibration) {
         // Add noise to the state
@@ -291,14 +314,18 @@ int main() {
         //z[0] += std::clamp(dist(gen), -0.1f, 0.1f);
         //z[1] += std::clamp(dist(gen), -0.1f, 0.1f);
         //z[2] += std::clamp(dist(gen), -0.05f, 0.05f);
+        z[0] += yaw_noise(gen); // Add noise to psi_1
         z[1] += yaw_noise(gen);
         z[2] += pos_noise(gen);
 
-        u_k << x_m[6]; // Convert u to VectorXd for kalman_filter
+        u_k << u_applied_calibration; // Convert u to VectorXd for kalman_filter
         // Kalman filter step
         MatrixXd Kf = kalman_filter(x_hat, u_k, P, z, Q, R, H, F, G);
         //x_hat passed by reference
+        
+        u_applied_calibration = x_m[6];
     }
+    */
 
     // If only using one sample
     //x_hat = F*z + G*u_k;
@@ -327,37 +354,21 @@ int main() {
     //MatrixXd Kf = kalman_filter(x_hat, u_k, P, z, Q, R, H, F, G);
 
     int count = 0;
+    float u_applied = 0.0f;
     for (auto& x_r: trajectory) {
-        // Add noise to the state
-        z << x[0], x[1], x[2]; // Measurement vector
-        //z[0] += std::clamp(dist(gen), -0.1f, 0.1f);
-        //z[1] += std::clamp(dist(gen), -0.1f, 0.1f);
-        //z[2] += std::clamp(dist(gen), -0.05f, 0.05f);
-        z[1] += yaw_noise(gen);
-        z[2] += pos_noise(gen);
-
-        // Kalman filter step
-        u_k << u[0]; // Convert u to VectorXd for kalman_filter
-        MatrixXd Kf = kalman_filter(x_hat, u_k, P, z, Q, R, H, F, G);
-        //x_hat passed by reference
-        
-        //cout << x[0] << "," << x[1] << "," << x[2] << endl;
-        std::vector<float> x_hat_std(x_hat.data(), x_hat.data() + x_hat.size());
-        std::vector<float> z_std(z.data(), z.data() + z.size());
-        //cout << x_hat_std[0] << "," << x_hat_std[1] << "," << x_hat_std[2] << endl;
-        //assert(false);
-        if (count % steps_per_control == 0) {
-            u = controller(x_hat_std, x_r);
-            //u = controller(z_std, x_r);
-            u[0] = std::clamp(u[0], -0.78539816f, 0.78539816f);
-        }
-
         xd = plant(x, u);
 
         // Euler integration
         for (int i = 0; i < 3; ++i) {
             x[i] += xd[i] * dt;
         }
+
+        //Process noise
+        /*
+        x[0] += (xd[0] * dt) + process_noise_psi(gen) * dt;
+        x[1] += (xd[1] * dt) + process_noise_psi(gen) * dt;
+        x[2] += (xd[2] * dt) + process_noise_y(gen) * dt;
+        */
         
         // Runge-Kutta 4th order (RK4) - more accurate
         /*
@@ -386,7 +397,32 @@ int main() {
         x[1] = xd[1];
         x[2] = xd[2];
         */
+
+        // Add noise to the state
+        z << x[0], x[1], x[2]; // Measurement vector
+        //z[0] += std::clamp(dist(gen), -0.1f, 0.1f);
+        //z[1] += std::clamp(dist(gen), -0.1f, 0.1f);
+        //z[2] += std::clamp(dist(gen), -0.05f, 0.05f);
+        z[0] += yaw_noise(gen);
+        z[1] += yaw_noise(gen);
+        z[2] += pos_noise(gen);
+
+        // Kalman filter step
+        u_k << u_applied;
+        MatrixXd Kf = kalman_filter(x_hat, u_k, P, z, Q, R, H, F, G);
         
+        //cout << x[0] << "," << x[1] << "," << x[2] << endl;
+        std::vector<float> x_hat_std(x_hat.data(), x_hat.data() + x_hat.size());
+        std::vector<float> z_std(z.data(), z.data() + z.size());
+        //cout << x_hat_std[0] << "," << x_hat_std[1] << "," << x_hat_std[2] << endl;
+        //assert(false);
+        if (count % steps_per_control == 0) {
+            u = controller(x_hat_std, x_r);
+            //u = controller(z_std, x_r);
+            u[0] = std::clamp(u[0], -0.78539816f, 0.78539816f);
+        }
+        u_applied = u[0];     // remember for next iteration
+ 
         result.push_back({x[0], x[1], x[2], u[0]});
         kalman_result.push_back({x_hat_std[0], x_hat_std[1], x_hat_std[2], x[0], x[1], x[2], (float)Kf.trace(), (float)P.trace()});
         
@@ -400,8 +436,6 @@ int main() {
         }
         */
         count += 1;
-        
-
     }
     
     // Export debug data for Kalman filter
