@@ -16,10 +16,6 @@ using Eigen::VectorXd;
 using namespace std;
 using json = nlohmann::json;
 
-#include <IpIpoptApplication.hpp>
-#include <IpTNLP.hpp>
-using namespace Ipopt;
-
 vector<float> plant(const vector<float>& x, const vector<float>& u) {
     /*
     Nonlinear kinematic equations
@@ -50,9 +46,9 @@ vector<float> plant(const vector<float>& x, const vector<float>& u) {
     return xd;
 }
 
-vector<vector<float>> get_reference_trajectory() {
-    // Read .csv file 
-    std::ifstream f{"trajectory_data.csv"};
+vector<vector<float>> get_reference_trajectory(string filename) {
+    // Read .csv file
+    std::ifstream f{filename};
     vector<vector<float>> x_r_t;
     string line;
 
@@ -81,21 +77,11 @@ vector<vector<float>> get_reference_trajectory() {
     return x_r_t;
 }
 
-vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
+vector<float> controller(vector<float> x, vector<float> x_r, int N, MatrixXd A, VectorXd B, MatrixXd Q, MatrixXd R) {
     vector<float> u(1, 0.0);
     VectorXd ubar = VectorXd::Zero(N); // Control input vector
 
     // Minimize cost = ubar^T(Bbar^TQbarBbar + Rbar)ubar + 2 ubar^TBbar^TQbarAbarxo + xo^T Abar^T Qbar Abar xo
-    MatrixXd A = MatrixXd::Identity(3, 3);
-    A(0, 0) = 1.0;
-    A(1, 0) = -0.01591814;
-    A(1, 1) = 1.01591814;
-    A(2, 0) = 0.00127772;
-    A(2, 1) = -0.16223772;
-    A(2, 2) = 1.0;
-
-    VectorXd B(3);
-    B << -0.02804181, -0.00058163, 0.00005263;
 
     VectorXd x_rr = VectorXd(3);
     x_rr << x_r[0], x_r[1], x_r[2];
@@ -107,23 +93,6 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
     x_ << x[0], x[1], x[2];
 
     VectorXd xo = x_ - x_rr;
-
-    // Cost matrices
-    MatrixXd Q = MatrixXd::Identity(3, 3);
-    MatrixXd R = MatrixXd::Identity(1, 1);
-
-    /*
-    Q(0, 0) = 820.7016;
-    Q(1, 1) = 820.7016;
-    Q(2, 2) = 100.0;
-
-    R(0) = 1.6211;
-    */
-    Q(0, 0) = 10.0;
-    Q(1, 1) = 100.0;
-    Q(2, 2) = 100.0;
-    
-    R(0, 0) *= 0.1;
     
     MatrixXd Qbar = MatrixXd::Zero(3*N, 3*N);
     for(int i = 0; i < N; i++) {
@@ -182,8 +151,8 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
     MatrixXd K = (Bbar.transpose() * Qbar * Bbar + Rbar).inverse() * Bbar.transpose() * Qbar * Abar;
     ubar = -1.0 * K * xo;
 
-    cout << "K: " << K.row(0) << endl;
-    cout << "ubar: " << ubar.transpose() << endl;
+    cout << "K_row0: " << K.row(0) << endl;
+    cout << "ubar: " << ubar.head(2).transpose() << ".." << ubar.tail(2).transpose() << endl;
     
     // Check if the closed-loop system is stable using first row of K
     // The closed-loop system is stable if the eigenvalues of A - B*K are all less than 1 
@@ -218,23 +187,43 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N=1) {
 
 int main() {
     // Read vars from config file
-    /*
     std::ifstream f{"config.json"};
     json config = json::parse(f);
-    */
 
     float T = 40.0; // seconds for total time of motion profile
-    float dt = 0.08; // seconds
-    float S1 = 0.2; // psi_1 [radians]
-    float S2 = 0.2; // psi_2 [radians]
-    float S3 = 5.0; // y2 [m]
-    int N = 10; // Horizon length
-    /*
-    vector<float> x = {1*S1, 1*S2, -1 * S3}; // Initial state
+    float dt = config["dt"]; // seconds
     
-    vector<vector<float>> trajectory = reference_trajectory_generation(dt, T, S1, S2, S3);
+    int N = config["N"]; // Horizon length
+    
+    MatrixXd A = MatrixXd::Identity(3, 3);
+    A(0, 0) = 1.0;
+    A(1, 0) = -0.01591814;
+    A(1, 1) = 1.01591814;
+    A(2, 0) = 0.00127772;
+    A(2, 1) = -0.16223772;
+    A(2, 2) = 1.0;
+
+    VectorXd B(3);
+    B << -0.02804181, -0.00058163, 0.00005263;
+    
+    MatrixXd Q = MatrixXd::Identity(3, 3);
+    MatrixXd R = MatrixXd::Identity(1, 1);
+
+    /*
+    Q(0, 0) = 820.7016;
+    Q(1, 1) = 820.7016;
+    Q(2, 2) = 100.0;
+
+    R(0, 0) = 1.6211;
     */
-    vector<vector<float>> trajectory = get_reference_trajectory();
+
+    Q(0, 0) = config["Q"][0][0];
+    Q(1, 1) = config["Q"][1][1];
+    Q(2, 2) = config["Q"][2][2];
+
+    R(0, 0) = config["R"][0][0];
+
+    vector<vector<float>> trajectory = get_reference_trajectory(config["reference_trajectory_file"]);
     vector<float> x = {trajectory[0][0], trajectory[0][1], trajectory[0][2]}; // Initial state
 
     vector<float> u, xd;
@@ -247,7 +236,7 @@ int main() {
         //u = controller(x, x_r);
 
         auto t0 = std::chrono::high_resolution_clock::now();
-        u = controller(x, x_r, N);
+        u = controller(x, x_r, N, A, B, Q, R);
         auto t1 = std::chrono::high_resolution_clock::now();
 
         duration = t1 - t0;
