@@ -1,7 +1,8 @@
 {
-    "reference_trajectory_file": "trajectory_data.csv",
+    "reference_trajectory_file": "jackknife.csv",
+    "controller": "mpc",
     "dt": 0.08,
-    "N": 10,
+    "N": 35,
     "Q": [
         [820.7016, 0.0, 0.0],
         [0.0, 820.7016, 0.0],

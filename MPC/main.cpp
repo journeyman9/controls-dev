@@ -434,7 +434,22 @@ vector<vector<float>> get_reference_trajectory(string filename) {
     return x_r_t;
 }
 
-vector<float> controller(vector<float> x, vector<float> x_r, int N, MatrixXd& A, VectorXd& B, MatrixXd& Q, MatrixXd& R) {
+vector<float> lqr(vector<float> x, vector<float> x_r) {
+    vector<float> K = {-27.60653245, 99.8307537, -7.85407596}; 
+    // Discrete .08
+    //vector<float> K = {-20.26030997, 72.07448439, -5.57790699};
+    // Discrete .008
+    //vector<float> K = {-26.74194825, 96.56371101, -7.5860704};
+    vector<float> u(1, 0.0);
+
+    for (int i=0; i<3; ++i) {
+        u[0] -= K[i] * (x[i] - x_r[i]);
+    }
+
+    return u;
+}
+
+vector<float> mpc(vector<float> x, vector<float> x_r, int N, MatrixXd& A, VectorXd& B, MatrixXd& Q, MatrixXd& R) {
     vector<float> u(1, 0.0);
 
     // Minimize cost = ubar^T(Bbar^TQbarBbar + Rbar)ubar + 2 ubar^TBbar^TQbarAbarxo + xo^T Abar^T Qbar Abar xo
@@ -564,10 +579,14 @@ int main() {
     std::chrono::duration<float> duration;
     vector<std::chrono::duration<float>> all_duration;
     for (const auto& x_r: trajectory) {
-        //u = controller(x, x_r);
 
         auto t0 = std::chrono::high_resolution_clock::now();
-        u = controller(x, x_r, N, A, B, Q, R);
+        if (config["controller"] == "mpc") {
+            u = mpc(x, x_r, N, A, B, Q, R);
+        }
+        else {
+            u = lqr(x, x_r);
+        }
         auto t1 = std::chrono::high_resolution_clock::now();
 
         duration = t1 - t0;

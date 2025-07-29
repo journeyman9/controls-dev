@@ -64,6 +64,7 @@ plt.show()
 """
 
 # LQR
+"""
 Q = np.array(
     [
         [820.7016, 0, 0],
@@ -73,6 +74,18 @@ Q = np.array(
 )
 
 R = 1.6211
+"""
 
-K, S, E = ct.dlqr(dsys, Q, R)
+Q = np.array(
+    [
+        [75, -75, 0],
+        [-75, 75, 0],
+        [0, 0, 5]
+    ]
+)
+
+R = 250
+
+#K, S, E = ct.dlqr(dsys, Q, R)
+K, S, E = ct.lqr(sys, Q, R)
 print("K: ", K)
