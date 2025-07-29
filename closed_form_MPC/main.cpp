@@ -94,10 +94,31 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N, MatrixXd A, 
 
     VectorXd xo = x_ - x_rr;
     
+    // --- terminal weight --------------------------------------------------
+    // P is the infinite–horizon LQR cost matrix: AᵀPA − AᵀPB(R+ BᵀPB)⁻¹BᵀPA + Q = P
+    MatrixXd P = Q;                       // initialise
+    for (int k = 0; k < 200; ++k) {       // small fixed-point iteration
+        MatrixXd Ktmp = (R + B.transpose()*P*B).inverse()*B.transpose()*P*A;
+        MatrixXd Pnext = Q + A.transpose()*(P - P*B*Ktmp)*A;
+        if ((Pnext-P).norm() < 1e-9) {
+            P = Pnext;
+            break;
+        }
+        P = Pnext;
+    }
+
+    // fill Q̄ and overwrite the last 3×3 block with P
+    MatrixXd Qbar = MatrixXd::Zero(3*N, 3*N);
+    for (int i = 0; i < N-1; ++i)
+        Qbar.block<3,3>(3*i, 3*i) = Q;
+    Qbar.block<3,3>(3*(N-1), 3*(N-1)) = P;   // terminal cost
+    
+    /*
     MatrixXd Qbar = MatrixXd::Zero(3*N, 3*N);
     for(int i = 0; i < N; i++) {
         Qbar.block<3,3>(i*3, i*3) = Q;
     }
+    */
 
     // Similarly for Rbar
     MatrixXd Rbar = MatrixXd::Zero(N, N);
@@ -209,19 +230,11 @@ int main() {
     MatrixXd Q = MatrixXd::Identity(3, 3);
     MatrixXd R = MatrixXd::Identity(1, 1);
 
-    /*
-    Q(0, 0) = 820.7016;
-    Q(1, 1) = 820.7016;
-    Q(2, 2) = 100.0;
+    Q(0, 0) = static_cast<float>(config["Q"][0][0]) * dt;
+    Q(1, 1) = static_cast<float>(config["Q"][1][1]) * dt;
+    Q(2, 2) = static_cast<float>(config["Q"][2][2]) * dt;
 
-    R(0, 0) = 1.6211;
-    */
-
-    Q(0, 0) = config["Q"][0][0];
-    Q(1, 1) = config["Q"][1][1];
-    Q(2, 2) = config["Q"][2][2];
-
-    R(0, 0) = config["R"][0][0];
+    R(0, 0) = static_cast<float>(config["R"][0][0]) * dt;
 
     vector<vector<float>> trajectory = get_reference_trajectory(config["reference_trajectory_file"]);
     vector<float> x = {trajectory[0][0], trajectory[0][1], trajectory[0][2]}; // Initial state
