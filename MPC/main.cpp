@@ -9,6 +9,8 @@
 #include <math.h>
 #include <algorithm>
 #include <Eigen/Dense>
+#define _USE_MATH_DEFINES
+#include <cmath>
  
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -19,6 +21,9 @@ using json = nlohmann::json;
 #include <IpIpoptApplication.hpp>
 #include <IpTNLP.hpp>
 using namespace Ipopt;
+
+// Define π constant
+const double PI = 3.14159265358979323846;
 
 class QuadraticNLP: public Ipopt::TNLP {
 public:
@@ -41,8 +46,8 @@ public:
         */
 
         n = N_;
-        m = 0;
-        nnz_jac_g = 0;
+        m = 2 * N_; // 2 constraints per horizon step: psi1-psi2 < π/2 and psi1-psi2 > -π/2
+        nnz_jac_g = 2 * N_ * N_; // Each constraint depends on all control inputs through state prediction
         nnz_h_lag = N_*(N_+1)/2; // Hessian is symmetric, so we only need to store the upper triangle
         index_style = C_STYLE;
         return true;
@@ -59,10 +64,24 @@ public:
         - g_l: lower bounds on constraints
         - g_u: upper bounds on constraints
         */
+        // Control input bounds
         for (Index i = 0; i < n; ++i) {
-            x_l[i] = -0.78539816; // Lower bound on variables
-            x_u[i] = 0.78539816;  // Upper bound on variables
+            x_l[i] = -0.78539816; // Lower bound on control inputs (steering angle)
+            x_u[i] = 0.78539816;  // Upper bound on control inputs
         }
+        
+        // State constraints: -π/2 < psi_1 - psi_2 < π/2
+        // Implemented as: psi_1 - psi_2 - π/2 <= 0 and -psi_1 + psi_2 - π/2 <= 0
+        for (Index i = 0; i < N_; ++i) {
+            // Constraint: psi_1 - psi_2 - π/2 <= 0
+            g_l[2*i] = -1e19;       // No lower bound
+            g_u[2*i] = 0.0;         // Upper bound is 0
+            
+            // Constraint: -psi_1 + psi_2 - π/2 <= 0 (equivalent to psi_1 - psi_2 >= -π/2)
+            g_l[2*i+1] = -1e19;     // No lower bound  
+            g_u[2*i+1] = 0.0;       // Upper bound is 0
+        }
+        
         return true;
     }
 
@@ -150,28 +169,28 @@ public:
         - g: values of the constraints
         */
         
-        /*
-        MatrixXd G = MatrixXd::Zero(m, n);
-        G[0, 0] = 1.0;
-        G[0, 1] = -1.0;
-        G[1, 0] = -1.0;
-        G[1, 1] = 1.0;
-        
+        // Convert control inputs to Eigen vector
         VectorXd ubar_ = VectorXd(N_);
         for (int i = 0; i < N_; ++i) {
             ubar_[i] = x[i];
         }
 
-        VectorXd h = VectorXd::Zero(m);
-        for (int i = 0; i < m; ++i) {
-            h[i] = 3.1415926 / 2.0;
-        }
-
-        auto constraints = G * Bbar_ * ubar_ - h - G * Abar_ * xo_;
+        // Predict states over horizon: x_predicted = Abar * xo + Bbar * ubar
+        VectorXd x_predicted = Abar_ * xo_ + Bbar_ * ubar_;
         
-        g[0] = constraints[0];
-        g[1] = constraints[1];
-        */
+        // Extract psi_1 and psi_2 at each time step and evaluate constraints
+        for (Index i = 0; i < N_; ++i) {
+            // Extract psi_1 and psi_2 at time step i
+            double psi_1 = x_predicted[3*i];     // First element of state at time i
+            double psi_2 = x_predicted[3*i + 1]; // Second element of state at time i
+            double theta = psi_1 - psi_2;
+            
+            // Constraint 1: psi_1 - psi_2 - π/2 <= 0
+            g[2*i] = theta - PI/2.0;
+            
+            // Constraint 2: -psi_1 + psi_2 - π/2 <= 0 (equivalent to theta >= -π/2)
+            g[2*i+1] = -theta - PI/2.0;
+        }
 
         return true;
     }
@@ -190,39 +209,56 @@ public:
         - values: values of the non-zero entries
         */
         
-        /*
-        MatrixXd G = MatrixXd::Zero(m, n);
-        G[0, 0] = 1.0;
-        G[0, 1] = -1.0;
-        G[1, 0] = -1.0;
-        G[1, 1] = 1.0;
-
-        auto Jacobian = G*Bbar_;
-
-        if (values==nullptr) {
-            // Return structure of the Jacobian (lower triangular)
+        if (values == nullptr) {
+            // Return structure of the Jacobian
             Index idx = 0;
-            for (Index col = 0; col < n; col++) {
-                for (Index row = 0; row < n; row++) {  // row starts from 0
-                    iRow[idx] = row;
-                    jCol[idx] = col;
+            for (Index i = 0; i < N_; ++i) {
+                for (Index j = 0; j < n; ++j) {
+                    // Constraint 1: theta - π/2 <= 0
+                    iRow[idx] = 2*i;
+                    jCol[idx] = j;
+                    idx++;
+                    
+                    // Constraint 2: -theta - π/2 <= 0
+                    iRow[idx] = 2*i + 1;
+                    jCol[idx] = j;
                     idx++;
                 }
             }
         } 
         else {
-            // Return values of the Jacobian (lower triangular)
-            for (Index col = 0; col < n; col++) {
-                for (Index row = 0; row < n; row++) {  // row starts from 0
-                    if (row < col) {
-                        values[row * n + col] = 0.0; // Lower triangular part is zero
-                    } else {
-                        values[row * n + col] = Jacobian(row, col);
-                    }
+            // Return values of the Jacobian
+            // ∂g/∂u = G * Bbar where G selects and combines state elements for constraints
+            
+            Index idx = 0;
+            for (Index i = 0; i < N_; ++i) {
+                // Define constraint gradient matrix G for time step i
+                // G[0,:] = [1, -1, 0] for constraint g[2*i] = psi_1 - psi_2 - π/2
+                // G[1,:] = [-1, 1, 0] for constraint g[2*i+1] = -psi_1 + psi_2 - π/2
+                MatrixXd G = MatrixXd::Zero(2, 3);
+                G(0, 0) = 1.0;   // ∂(psi_1 - psi_2)/∂psi_1 = 1
+                G(0, 1) = -1.0;  // ∂(psi_1 - psi_2)/∂psi_2 = -1
+                G(0, 2) = 0.0;   // ∂(psi_1 - psi_2)/∂y_2 = 0
+                
+                G(1, 0) = -1.0;  // ∂(-psi_1 + psi_2)/∂psi_1 = -1
+                G(1, 1) = 1.0;   // ∂(-psi_1 + psi_2)/∂psi_2 = 1
+                G(1, 2) = 0.0;   // ∂(-psi_1 + psi_2)/∂y_2 = 0
+                
+                for (Index j = 0; j < n; ++j) {
+                    // Extract Bbar submatrix for states at time step i
+                    VectorXd Bbar_i = Bbar_.block<3, 1>(3*i, j);  // [∂psi_1/∂u[j], ∂psi_2/∂u[j], ∂y_2/∂u[j]]
+                    
+                    // Compute ∂g/∂u[j] = G * Bbar_i
+                    VectorXd constraint_jacobian = G * Bbar_i;
+                    
+                    // Store results
+                    values[idx] = constraint_jacobian[0];  // ∂g[2*i]/∂u[j] = psi_1 - psi_2
+                    idx++;
+                    values[idx] = constraint_jacobian[1];  // ∂g[2*i+1]/∂u[j] = -psi_1 + psi_2
+                    idx++;
                 }
             }
         }
-        */
         return true;
     }
 
@@ -255,18 +291,43 @@ public:
             }
         } 
         else {
-            // Return values of the Hessian (lower triangular)
-            MatrixXd H = 2.0 * (Bbar_.transpose() * Qbar_ * Bbar_ + Rbar_);
+            // Return values of the Hessian of the Lagrangian (lower triangular)
+            // Lagrangian Hessian = obj_factor * ∇²f + Σ λᵢ * ∇²gᵢ
+            
+            // Objective function Hessian: ∇²f = 2(Bbar^T Qbar Bbar + Rbar)
+            MatrixXd H_objective = 2.0 * (Bbar_.transpose() * Qbar_ * Bbar_ + Rbar_);
+            
+            // Constraint Hessians: ∇²gᵢ for each constraint
+            MatrixXd H_constraints = MatrixXd::Zero(n, n);
+            
+            // For each constraint, compute its Hessian contribution
+            for (Index i = 0; i < N_; ++i) {
+                // Constraint g[2*i] = psi_1 - psi_2 - π/2
+                // Since g = (1 -1 0) * x where x = Abar*xo + Bbar*u
+                // ∇²g[2*i] = ∇²((1 -1 0) * (Abar*xo + Bbar*u)) = (1 -1 0) * ∇²(Bbar*u) = 0
+                // because Bbar*u is linear in u, so second derivative is 0
+                MatrixXd H_constraint_2i = MatrixXd::Zero(n, n);
+                H_constraints += lambda[2*i] * H_constraint_2i;  // Add λ[2*i] * 0
+                
+                // Constraint g[2*i+1] = -psi_1 + psi_2 - π/2
+                // Since g = (-1 1 0) * x where x = Abar*xo + Bbar*u  
+                // ∇²g[2*i+1] = ∇²((-1 1 0) * (Abar*xo + Bbar*u)) = (-1 1 0) * ∇²(Bbar*u) = 0
+                // because Bbar*u is linear in u, so second derivative is 0
+                MatrixXd H_constraint_2i1 = MatrixXd::Zero(n, n);
+                H_constraints += lambda[2*i+1] * H_constraint_2i1;  // Add λ[2*i+1] * 0
+            }
+            
+            // Total Hessian = objective Hessian + constraint Hessians
+            MatrixXd H_total = obj_factor * H_objective + H_constraints;
+            
             Index idx = 0;
             for (Index col = 0; col < n; col++) {
                 for (Index row = col; row < n; row++) {  // row starts from col
-                    values[idx] = obj_factor * H(row, col);
+                    values[idx] = H_total(row, col);
                     idx++;
                 }
             }
         }
-
-        // No contribution from constraints because Hessian of constraint is 0 
 
         return true;
     }
@@ -290,8 +351,13 @@ public:
         //cout << "Solver status: " << status << endl;
         //cout << "Optimal u: " << x[0] << endl;
         //cout << "Final cost: " << obj_value << endl;
+        // Only print out first two and last two, but information what N is
         for (Index i = 0; i < n; ++i) {
-            cout << "u[" << i << "] = " << x[i] << endl;
+            if (i < 2 || i >= n - 2) {
+                cout << "u[" << i << "] = " << x[i] << endl;
+            } else if (i == 2) {
+                cout << "..." << endl;
+            }
         }
 
         // Store solution
@@ -454,7 +520,6 @@ vector<float> controller(vector<float> x, vector<float> x_r, int N, MatrixXd& A,
     }
 
     u[0] = dynamic_cast<QuadraticNLP*>(GetRawPtr(mynlp))->getSolution();
-    u[0] = std::clamp(u[0],-0.78539816f, 0.78539816f);
     return u;
 }
 

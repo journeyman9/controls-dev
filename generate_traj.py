@@ -6,16 +6,19 @@ import json
 
 env = gym.make('TruckBackerUpper-v0').unwrapped
 # Trajectory
-#q0 = [2.0, -3.0, 123.0] # x, y, theta
-#qg = [-8.0, -29.0, 215.0]
+q0 = [2.0, -3.0, 123.0] # x, y, theta
+qg = [-8.0, -29.0, 215.0]
 
 # Debug
-q0 = [-25.0, 0.0, 0.0] 
-qg = [25.0, 0.0, 0.0]
+#q0 = [-25.0, 0.0, 0.0] 
+#qg = [25.0, 0.0, 0.0]
 
 # Measurement
 #q0 = [21.0, -16.0, 180.0]
 #qg = [14.0, 11.0, 3.0]
+
+## Jackknife
+
 env.manual_params(L2=10.192, h=-0.29)
 env.manual_course(q0, qg)
 env.dt = 0.008
